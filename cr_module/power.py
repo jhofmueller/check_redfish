@@ -20,16 +20,19 @@ def get_single_chassi_power(plugin_object, redfish_url):
 
     power_data = plugin_object.rf.get_view(redfish_url)
 
-    power_supplies = power_data.get("PowerSupplies")
+    if power_data.get("error"):
+        plugin_object.add_data_retrieval_error(PowerSupply, power_data, redfish_url)
+        return
+
+    power_supplies = power_data.get("PowerSupplies", list())
 
     fujitsu_power_sensors = None
     if plugin_object.rf.vendor == "Fujitsu":
         fujitsu_power_sensors = grab(power_data, f"Oem.{plugin_object.rf.vendor_dict_key}.ChassisPowerSensors")
 
-    default_text = ""
     ps_num = 0
     ps_absent = 0
-    if power_supplies:
+    if len(power_supplies) > 0:
         for ps in power_supplies:
 
             ps_num += 1
@@ -113,20 +116,20 @@ def get_single_chassi_power(plugin_object, redfish_url):
             status_text = "Power supply {bay} {model}status is: {status}".format(
                 bay=str(bay), model=printed_model, status=printed_status)
 
-            plugin_object.add_output_data("CRITICAL" if health not in ["OK", "WARNING"] else health, status_text)
+            plugin_object.add_output_data("CRITICAL" if health not in ["OK", "WARNING"] else health,
+                                          status_text, location=f"Chassi {chassi_id}")
 
             if last_power_output is not None:
-                plugin_object.add_perf_data(f"ps_{bay}", int(last_power_output))
+                plugin_object.add_perf_data(f"ps_{bay}", int(last_power_output), location=f"Chassi {chassi_id}")
 
         default_text = "All power supplies (%d) are in good condition" % (ps_num - ps_absent)
 
     else:
-        plugin_object.add_output_data("UNKNOWN", f"No power supply data returned for API URL '{redfish_url}'")
+        default_text = "No power supplies detected"
+        plugin_object.inventory.add_issue(PowerSupply, f"No power supply data returned for API URL '{redfish_url}'")
 
     # get PowerRedundancy status
-    power_redundancies = power_data.get("PowerRedundancy")
-    if power_redundancies is None:
-        power_redundancies = power_data.get("Redundancy")
+    power_redundancies = power_data.get("PowerRedundancy") or power_data.get("Redundancy")
 
     if power_redundancies:
         pr_status_summary_text = ""
@@ -148,7 +151,7 @@ def get_single_chassi_power(plugin_object, redfish_url):
                     pr_status_summary_text += f" {status_text}"
 
                     plugin_object.add_output_data("CRITICAL" if status not in ["OK", "WARNING"] else status,
-                                                  status_text)
+                                                  status_text, location=f"Chassi {chassi_id}")
 
         if len(pr_status_summary_text) != 0:
             default_text += f" and{pr_status_summary_text}"
@@ -175,18 +178,19 @@ def get_single_chassi_power(plugin_object, redfish_url):
                     status_text = f"Voltage {name} (status: {status}/{state}): {reading}V"
 
                     plugin_object.add_output_data("CRITICAL" if status not in ["OK", "WARNING"] else status,
-                                                  status_text)
+                                                  status_text, location=f"Chassi {chassi_id}")
 
                     if reading is not None and name is not None:
                         try:
-                            plugin_object.add_perf_data(f"voltage_{name}", float(reading))
+                            plugin_object.add_perf_data(f"voltage_{name}", float(reading),
+                                                        location=f"Chassi {chassi_id}")
                         except Exception:
                             pass
 
         if voltages_num > 0:
             default_text += f" and {voltages_num} Voltages are OK"
 
-    plugin_object.add_output_data("OK", default_text, summary=True)
+    plugin_object.add_output_data("OK", default_text, summary=True, location=f"Chassi {chassi_id}")
 
     return
 

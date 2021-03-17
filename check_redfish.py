@@ -27,19 +27,14 @@ import logging
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 
 from cr_module.classes.plugin import PluginData
-from cr_module.power import get_single_chassi_power
-from cr_module.temp import get_single_chassi_temp
-from cr_module.fan import get_single_chassi_fan
-from cr_module.system_chassi import get_system_info
-from cr_module.proc import get_single_system_procs
-from cr_module.mem import get_single_system_mem
+from cr_module.system_chassi import get_system_info, get_chassi_data, get_system_data
 from cr_module.nic import get_network_interfaces
 from cr_module.storage import get_storage
 from cr_module.bmc import get_bmc_info
 from cr_module.firmware import get_firmware_info
 from cr_module.event import get_event_log
-
 from cr_module.classes.redfish import default_conn_max_retries, default_conn_timeout
+from cr_module.classes.inventory import Fan, PowerSupply, Temperature, Memory, Processor
 
 plugin = None
 
@@ -121,6 +116,8 @@ def parse_command_line():
                        help="return inventory in json format instead of regular plugin output")
     group.add_argument("--inventory_id",
                        help="set an ID which can be used to identify this host in the destination inventory")
+    group.add_argument("--inventory_file",
+                       help="set file to write the inventory output to. Otherwise stdout will be used.")
 
     result = parser.parse_args()
 
@@ -140,46 +137,6 @@ def parse_command_line():
     return result
 
 
-def get_chassi_data(plugin_object, data_type=None):
-
-    chassis = plugin_object.rf.get_system_properties("chassis") or list()
-
-    if len(chassis) == 0:
-        plugin_object.add_output_data("UNKNOWN", "No 'chassis' property found in root path '/redfish/v1'")
-        return
-
-    for chassi in chassis:
-        if data_type == "power":
-            get_single_chassi_power(plugin_object, chassi)
-        elif data_type == "temp":
-            get_single_chassi_temp(plugin_object, chassi)
-        elif data_type == "fan":
-            get_single_chassi_fan(plugin_object, chassi)
-        else:
-            raise Exception("Unknown data_type not set for get_chassi_data(): %s", data_type)
-
-    return
-
-
-def get_system_data(plugin_object, data_type):
-
-    systems = plugin_object.rf.get_system_properties("systems") or list()
-
-    if len(systems) == 0:
-        plugin_object.add_output_data("UNKNOWN", "No 'systems' property found in root path '/redfish/v1'")
-        return
-
-    for system in systems:
-        if data_type == "procs":
-            get_single_system_procs(plugin_object, system)
-        elif data_type == "mem":
-            get_single_system_mem(plugin_object, system)
-        else:
-            raise Exception("Unknown data_type not set for get_system_data (): %s", data_type)
-
-    return
-
-
 if __name__ == "__main__":
     # start here
     args = parse_command_line()
@@ -197,11 +154,11 @@ if __name__ == "__main__":
     # get basic information
     plugin.rf.determine_vendor()
 
-    if any(x in args.requested_query for x in ['power', 'all']):    get_chassi_data(plugin, "power")
-    if any(x in args.requested_query for x in ['temp', 'all']):     get_chassi_data(plugin, "temp")
-    if any(x in args.requested_query for x in ['fan', 'all']):      get_chassi_data(plugin, "fan")
-    if any(x in args.requested_query for x in ['proc', 'all']):     get_system_data(plugin, "procs")
-    if any(x in args.requested_query for x in ['memory', 'all']):   get_system_data(plugin, "mem")
+    if any(x in args.requested_query for x in ['power', 'all']):    get_chassi_data(plugin, PowerSupply)
+    if any(x in args.requested_query for x in ['temp', 'all']):     get_chassi_data(plugin, Temperature)
+    if any(x in args.requested_query for x in ['fan', 'all']):      get_chassi_data(plugin, Fan)
+    if any(x in args.requested_query for x in ['proc', 'all']):     get_system_data(plugin, Processor)
+    if any(x in args.requested_query for x in ['memory', 'all']):   get_system_data(plugin, Memory)
     if any(x in args.requested_query for x in ['nic', 'all']):      get_network_interfaces(plugin)
     if any(x in args.requested_query for x in ['storage', 'all']):  get_storage(plugin)
     if any(x in args.requested_query for x in ['bmc', 'all']):      get_bmc_info(plugin)

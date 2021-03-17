@@ -13,9 +13,10 @@ import json
 import sys
 
 from cr_module.classes import plugin_status_types
+from cr_module.common import grab
 
 # inventory definition
-inventory_layout_version_string = "1.1.0"
+inventory_layout_version_string = "1.2.0"
 
 
 # noinspection PyBroadException
@@ -179,7 +180,7 @@ class InventoryItem(object):
 
 
 class PhysicalDrive(InventoryItem):
-    inventory_item_name = "physical_drives"
+    inventory_item_name = "physical_drive"
     valid_attributes = [
         "bay",
         "encrypted",
@@ -211,7 +212,7 @@ class PhysicalDrive(InventoryItem):
 
 
 class LogicalDrive(InventoryItem):
-    inventory_item_name = "logical_drives"
+    inventory_item_name = "logical_drive"
     valid_attributes = [
        "encrypted",
        "health_status",
@@ -228,7 +229,7 @@ class LogicalDrive(InventoryItem):
 
 
 class StorageController(InventoryItem):
-    inventory_item_name = "storage_controllers"
+    inventory_item_name = "storage_controller"
     valid_attributes = [
        "backup_power_health",
        "backup_power_present",
@@ -250,7 +251,7 @@ class StorageController(InventoryItem):
 
 
 class StorageEnclosure(InventoryItem):
-    inventory_item_name = "storage_enclosures"
+    inventory_item_name = "storage_enclosure"
     valid_attributes = [
        "firmware",
        "health_status",
@@ -270,7 +271,7 @@ class StorageEnclosure(InventoryItem):
 
 
 class Processor(InventoryItem):
-    inventory_item_name = "processors"
+    inventory_item_name = "processor"
     valid_attributes = [
        "L1_cache_kib",
        "L2_cache_kib",
@@ -294,7 +295,7 @@ class Processor(InventoryItem):
 
 
 class Memory(InventoryItem):
-    inventory_item_name = "memories"
+    inventory_item_name = "memory"
     valid_attributes = [
         "base_type",
         "channel",
@@ -315,7 +316,7 @@ class Memory(InventoryItem):
 
 
 class PowerSupply(InventoryItem):
-    inventory_item_name = "power_supplies"
+    inventory_item_name = "power_supply"
     valid_attributes = [
         "bay",
         "capacity_in_watt",
@@ -337,7 +338,7 @@ class PowerSupply(InventoryItem):
 
 
 class Temperature(InventoryItem):
-    inventory_item_name = "temperatures"
+    inventory_item_name = "temperature"
     valid_attributes = [
         "chassi_ids",
         "health_status",
@@ -360,7 +361,7 @@ class Temperature(InventoryItem):
 
 
 class Fan(InventoryItem):
-    inventory_item_name = "fans"
+    inventory_item_name = "fan"
     valid_attributes = [
         "chassi_ids",
         "health_status",
@@ -383,7 +384,7 @@ class Fan(InventoryItem):
 
 
 class NetworkAdapter(InventoryItem):
-    inventory_item_name = "network_adapters"
+    inventory_item_name = "network_adapter"
     valid_attributes = [
         "chassi_ids",
         "firmware",
@@ -431,7 +432,7 @@ class NetworkPort(InventoryItem):
 
 
 class System(InventoryItem):
-    inventory_item_name = "systems"
+    inventory_item_name = "system"
     valid_attributes = [
         "bios_version",
         "chassi_ids",
@@ -467,7 +468,7 @@ class Firmware(InventoryItem):
 
 
 class Manager(InventoryItem):
-    inventory_item_name = "managers"
+    inventory_item_name = "manager"
     valid_attributes = [
         "chassi_ids",
         "firmware",
@@ -483,7 +484,7 @@ class Manager(InventoryItem):
 
 
 class Chassi(InventoryItem):
-    inventory_item_name = "chassis"
+    inventory_item_name = "chassi"
     valid_attributes = [
         "health_status",
         "id",
@@ -506,7 +507,7 @@ class Inventory(object):
     """
     base_structure = dict()
     inventory_start = None
-    data_retrieval_issues = list()
+    data_retrieval_issues = dict()
     plugin_version = None
     inventory_id = None
 
@@ -563,18 +564,45 @@ class Inventory(object):
             raise AttributeError("'%s' object must be a sub class of '%s'." %
                                  (class_name.__name__, InventoryItem.__name__))
 
-        self.data_retrieval_issues.append(f"{class_name.inventory_item_name}: {issue}")
+        current_issues = self.data_retrieval_issues.get(class_name.inventory_item_name, list())
+        current_issues.append(f"{issue}")
+        self.data_retrieval_issues[class_name.inventory_item_name] = current_issues
+
+    def get_issues(self, class_name=None):
+
+        if class_name is not None:
+            if class_name not in InventoryItem.__subclasses__():
+                raise AttributeError("'%s' object must be a sub class of '%s'." %
+                                     (class_name.__name__, InventoryItem.__name__))
+
+            return self.data_retrieval_issues.get(class_name.inventory_item_name, list())
+        else:
+            return self.data_retrieval_issues
 
     def get(self, class_name):
+
+        if isinstance(class_name, str):
+            if class_name not in [x.inventory_item_name for x in InventoryItem.__subclasses__()]:
+                raise AttributeError(f"'{class_name}' must be a sub class of {InventoryItem.__name__}")
+
+            inventory_key = class_name
+
+        else:
+            if class_name not in InventoryItem.__subclasses__():
+                raise AttributeError("'%s' object must be a sub class of '%s'." %
+                                     (class_name.__name__, InventoryItem.__name__))
+            else:
+                inventory_key = class_name.inventory_item_name
+
+        return self.base_structure.get(inventory_key, list())
+
+    def unset(self, class_name=None):
 
         if class_name not in InventoryItem.__subclasses__():
             raise AttributeError("'%s' object must be a sub class of '%s'." %
                                  (class_name.__name__, InventoryItem.__name__))
 
-        if self.base_structure[class_name.inventory_item_name] is None:
-            return list()
-
-        return self.base_structure[class_name.inventory_item_name]
+        self.base_structure[class_name.inventory_item_name] = list()
 
     def to_json(self):
         inventory_content = self.base_structure
@@ -583,9 +611,7 @@ class Inventory(object):
             tzinfo=datetime.timezone.utc).astimezone().replace(microsecond=0).isoformat()
 
         # add metadata
-        inventory_content["meta"] = {
-            "WARNING":
-                "THIS is an alpha version of this implementation and possible changes might occur without notice",
+        meta_data = {
             "start_of_data_collection": start_date,
             "duration_of_data_collection_in_seconds": (datetime.datetime.utcnow()-self.inventory_start).total_seconds(),
             "inventory_layout_version": inventory_layout_version_string,
@@ -595,7 +621,7 @@ class Inventory(object):
             "inventory_id": self.inventory_id
         }
 
-        output = {"inventory": inventory_content}
+        output = {"inventory": inventory_content, "meta": meta_data}
 
         return json.dumps(output, default=lambda o: o.__dict__,
                           sort_keys=True, indent=4)
